@@ -77,6 +77,55 @@ For reference, CockroachDB uses these defaults:
 - `[port]`: **26257**
 - `[user]`: **root**
 
+
+## Import from MySQL Dump
+
+This section has instructions for getting data out of MySQL and into CockroachDB.
+
+- [Step 1. Dump the MySQL database](#step-1-dump-the-mysql-database)
+- [Step 2. Convert the database to CSV](#step-2-convert-the-database-to-csv)
+- [Step 3. IMPORT the CSV](#step-3-import-the-csv)
+
+### Step 1. Dump the MySQL database
+
+{% include copy-clipboard.html %}
+~~~ sh
+$ mysqldump -u root test --tab ./cockroach-data/extern --fields-enclosed-by='"' --fields-escaped-by='\'
+~~~
+
+Note that your MySQL user will need permission to execute [`SELECT INTO OUTFILE`](https://dev.mysql.com/doc/refman/8.0/en/select.html).  This is required by [`mysqldump --tab`](https://dev.mysql.com/doc/refman/8.0/en/mysqldump-delimited-text.html).
+
+Always specify an escape character when running `mysqldump --tab`.  If your data happens to include any of the special characters, the dumped data cannot be decoded correctly if they are not escaped.  We recommend also specifying an enclose character.
+
+### Step 2. Convert the database to CSV
+
+{% include copy-clipboard.html %}
+~~~ sh
+$ ./mysqlout-to-csv --chunk-rows 100000 --fields-enclosed-by='"' --fields-escaped-by='\' cockroach-data/extern/tblATS_job.txt cockroach-data/extern/tbl.csv
+~~~
+
+Note that [`IMPORT`](import.html) may mishandle non-Unicode CSV content and recommends hex-encoding binary fields.  The `mysqlout-to-csv` command can hex-encode the fields you specify via the `--hex-cols` flag.
+
+Note that chunking your CSVs such that you have at least as many CSV files as nodes allows utilizing all nodes, since IMPORT distributes work by assigning each file to a node.
+
+### Step 3. IMPORT the CSV
+
+The command below shows how to run [`IMPORT`](import.html) from the command line using [the built-in SQL client](use-the-built-in-sql-client.html).  You can also issue the [`IMPORT`](import.html) statement directly at the SQL prompt.
+
+In either case, you will need to replace the IP address, database name, and other information shown below to match the environment you're working with.
+
+{% include copy-clipboard.html %}
+~~~ sh
+cockroach sql --insecure --host 104.196.49.87 -d dbname -e "IMPORT TABLE \"table1\" CREATE USING 's3://nate-external-storage/schema.sql?AWS_ACCESS_KEY_ID=ACCESSKEY&AWS_SECRET_ACCESS_KEY=SECRET' CSV DATA ('s3://nate-external-storage/tbl.csv.1?AWS_ACCESS_KEY_ID=ACCESSKEY&AWS_SECRET_ACCESS_KEY=SECRET', 's3://nate-external-storage/tbl.csv.2?AWS_ACCESS_KEY_ID=ACCESSKEY&AWS_SECRET_ACCESS_KEY=SECRET') WITH nullif='\N'"
+~~~
+
+Note that:
+
+- If you create multiple chunks, you need to point to each chunk in remote storage by name
+- If you do not want to use remote storage, you can either:
+  - Copy all files to each node's `extern` subdirectory, or
+  - (Recommended) Start up an [off-the-shelf HTTP server](create-a-file-server.html#using-caddy-as-a-file-server) to serve the files from where they are
+
 ## See Also
 
 - [SQL Dump (Export)](sql-dump.html)
@@ -84,3 +133,4 @@ For reference, CockroachDB uses these defaults:
 - [Restore Data](restore-data.html)
 - [Use the Built-in SQL Client](use-the-built-in-sql-client.html)
 - [Other Cockroach Commands](cockroach-commands.html)
+- [`IMPORT`](import.html)
